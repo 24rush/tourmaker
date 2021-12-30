@@ -11,10 +11,11 @@ import Stroke from "ol/style/Stroke";
 import * as proj from "ol/proj";
 import * as geom from "ol/geom";
 
-class RouteFeature {
+class RouteMapFeature {
   constructor(id) {
     this.id = id;
     this.geometry = {};
+    this.hasPoints = false;
     this.vectorSource = new Vector({});
 
     this.style = new Style({
@@ -44,6 +45,7 @@ class RouteFeature {
     }
 
     this.feature.setGeometry(new geom.MultiLineString([points]));
+    this.hasPoints = points.length > 0;
   }
 
   getVectorLayer() {
@@ -71,7 +73,7 @@ class OLMap {
       ],
       view: new View({
         center: proj.transform([-5.166461, 36.74], "EPSG:4326", "EPSG:900913"),
-        zoom: 14,
+        zoom: 12,
       }),
     });
   }
@@ -81,20 +83,26 @@ class OLMap {
   }
 
   centerMap(point) {
-    this.map.getView().setCenter(proj.transform([point.lng, point.lat], "EPSG:4326", "EPSG:900913"));
+    this.map.getView().animate({
+      center: proj.transform(
+        [point.lng, point.lat],
+        "EPSG:4326",
+        "EPSG:900913"
+      ),
+      duration: 500,
+    });
   }
 
   updateRoutePoints(id, points) {
     let route = this.getRoute(id);
 
     if (!route) {
-      route = new RouteFeature(id);
+      route = new RouteMapFeature(id);
       this.routeList[id] = route;
       this.map.addLayer(this.routeList[id].getVectorLayer());
     }
 
     route.updatePoints(points);
-    this.centerMap(points[0]);
   }
 
   removeRoute(id) {
@@ -130,6 +138,9 @@ export default {
     onDeleteDay({ id }) {
       this.olMap.removeRoute(id);
     },
+    onCenterMap({ point }) {
+      this.olMap.centerMap(point);
+    },
   },
 
   mounted() {
@@ -148,6 +159,7 @@ import Route from "./components/Route.vue";
     @onUpdateRoutePoints="onUpdateRoutePoints"
     @onShowOnMap="onShowOnMap"
     @onDeleteDay="onDeleteDay"
+    @onCenterMap="onCenterMap"
   />
 </template>
 
