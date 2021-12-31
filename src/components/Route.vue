@@ -1,6 +1,19 @@
 <script>
 import GPXProcessor from "../js/gpx.js";
 import VueApexCharts from "vue3-apexcharts";
+import { createProjection } from "ol/proj";
+
+let gpx = new GPXProcessor();
+fetch("src/assets/gpx.json")
+  .then((response) => response.json())
+  .then((items) => {
+    gpx.setPoints(items.items);
+
+    console.log(gpx.getDistanceInGradientRange(0, 3));
+    console.log(gpx.getDistanceInGradientRange(4, 7));
+    console.log(gpx.getDistanceInGradientRange(8, 40));
+    console.log(gpx.getDistanceInGradientRange(-40, -1));
+  });
 
 async function tryLoadGPX(url) {
   let tourId = url.split("/").pop();
@@ -11,10 +24,12 @@ async function tryLoadGPX(url) {
 }
 
 class DayRoute {
-  constructor(id, index) {
+  constructor(context, id, index) {
     // Display
     this.id = id;
-    this.title = "Day " + index;
+    this.index = index;
+    this.title = "Day " + this.index;
+    this.context = context;
     this.gpx_url = "";
     this.elevation = 0.0;
     this.distance = 0.0;
@@ -26,6 +41,7 @@ class DayRoute {
     this._gpxProcessor = new GPXProcessor();
 
     this.chartOptions = {
+      model: this,
       markers: {
         size: 0,
       },
@@ -37,14 +53,40 @@ class DayRoute {
             return "Km " + Math.floor(val);
           },
         },
+        shared: false,
+        custom: function ({ series, seriesIndex, dataPointIndex, w }) {
+          // Move pin on map
+          context.onMovePinAtDistanceFromStart(
+            w.config.model,
+            w.globals.labels[dataPointIndex]
+          );
+          return "";
+          /*'<div class="arrow_box">' +
+            "<span>" +
+            +Math.floor(
+              w.config.model.getGradientAtDistanceFromStart(
+                w.globals.labels[dataPointIndex]
+              )
+            ) +
+            "</span>" +
+            "</div>"*/
+        },
       },
       chart: {
-        id: "elevation-chart",
         animations: {
           enabled: false,
         },
         offsetY: 0,
         parentHeightOffset: -20,
+        events: {
+          model: this,
+          mouseLeave: function (event, chartContext, config) {
+            this.model.context.onMovePinAtDistanceFromStart(
+              this.model,
+              undefined
+            );
+          },
+        },
       },
       colors: ["#e76d23"],
       yaxis: {
@@ -90,12 +132,10 @@ class DayRoute {
         data: this._gpxProcessor.getElevationPoints(),
       },
     ];
-    
-    let threshold = this._gpxProcessor.getElevationRange();
-    if (threshold < 400) {
-        this.chartOptions.yaxis.max = this._gpxProcessor.getMaxAltitude() + 1.2 * threshold;
-        this.chartOptions.yaxis.min = this._gpxProcessor.getMinAltitude() - 3 * threshold;
-    }
+  }
+
+  updateTitle(title) {
+    this.title = "Day " + this.index + ": " + title;
   }
 
   getCenterPoint() {
@@ -106,6 +146,19 @@ class DayRoute {
   }
   getElevationRange() {
     return this._gpxProcessor.getElevationRange();
+  }
+
+  getLatLongAtDistanceFromStart(distanceFromStart) {
+    return this._gpxProcessor.getLatLongAtDistanceFromStart(distanceFromStart);
+  }
+  getGradientAtDistanceFromStart(distanceFromStart) {
+    return this._gpxProcessor.getGradientAtDistanceFromStart(distanceFromStart);
+  }
+  getLatLongAtIndexPosition(index) {
+    return this._gpxProcessor.getLatLongAtIndexPosition(index);
+  }
+  getGradientAtIndexPosition(index) {
+    return this._gpxProcessor.getGradientAtIndexPosition(index);
   }
 }
 
@@ -139,7 +192,9 @@ export default {
       return str + "-" + index;
     },
     addDay: function () {
-      this.days.push(new DayRoute(this.nextDayId++, this.days.length + 1));
+      this.days.push(
+        new DayRoute(this, this.nextDayId++, this.days.length + 1)
+      );
     },
     removeDay: function (index) {
       let id = this.days[index].id;
@@ -156,6 +211,11 @@ export default {
     },
     selectedGPXFile: function (event, day) {
       const file = event.target.files[0];
+      if (!file) {
+        this.updateDayRoute(day, []);
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = (e) => {
         const parser = new DOMParser();
@@ -174,13 +234,13 @@ export default {
           });
         }
 
-        day.setGPXPoints(points);
-        this.$emit("onUpdateRoutePoints", {
-          id: day.id,
-          points: points,
-        });
+        this.updateDayRoute(day, points);
+        day.updateTitle(file.name.replace(/\.[^/.]+$/, ""));
       };
 
+      reader.catch = (e) => {
+        this.updateDayRoute(day, []);
+      };
       reader.readAsText(file);
     },
 
@@ -193,7 +253,7 @@ export default {
       if (day.showOnMap && day.hasPoints()) {
         this.$emit("onCenterMap", { point: day.getCenterPoint() });
       } else {
-        this.$emit("onShowOnMap", { id: day.id, show: false });
+        this.$emit("onShowRouteOnMap", { id: day.id, show: day.showOnMap });
       }
     },
 
@@ -208,8 +268,16 @@ export default {
           alert("Cannot load: " + error);
         });
     },
-    onShowOnMap: function (day) {
-      this.$emit("onShowOnMap", { id: day.id, show: day.showOnMap });
+    onShowRouteOnMap: function (day) {
+      this.$emit("onShowRouteOnMap", { id: day.id, show: day.showOnMap });
+    },
+    onMovePinAtDistanceFromStart: function (day, distanceFromStart) {
+      let latlngPoint = day.getLatLongAtDistanceFromStart(distanceFromStart);
+      this.$emit("onMovePin", { point: latlngPoint });
+    },
+    onMovePinAtIndexPosition: function (day, index) {
+      let latlngPoint = day.getLatLongAtIndexPosition(index);
+      this.$emit("onMovePin", { point: latlngPoint });
     },
   },
 
@@ -237,7 +305,7 @@ export default {
         var clientWidth = parseInt(e.target.style.width);
         var clientHeight = parseInt(e.target.style.height);
         var isInResizeCorner =
-          e.clientX > clientWidth - 10 || e.clientY > clientHeight - 10;
+          e.clientX > clientWidth - 15 || e.clientY > clientHeight - 15;
 
         if (
           (e.target == div ||
@@ -331,8 +399,8 @@ export default {
 
       <a
         href="#"
-        class="text-decoration-none ms-auto"
-        style="color: black"
+        class="text-decoration-none ms-auto black"
+        style="padding-top: 0.4em"
         @click="addDay"
       >
         <svg
@@ -353,7 +421,7 @@ export default {
       </a>
     </div>
     <ul class="list-unstyled ps-0" :key="day.id" v-for="(day, index) in days">
-      <li class="mb-1" @mouseenter="onHighlight(day)">
+      <li class="mb-1">
         <button
           class="btn btn-toggle align-items-center rounded"
           data-bs-toggle="collapse"
@@ -374,7 +442,7 @@ export default {
           "
           v-focus
         />
-        <span v-else @click="day.edit = true" style="vertical-align: text-top">
+        <span v-else @click="day.edit = true" class="day-title">
           {{ day.title }}
         </span>
 
@@ -382,6 +450,7 @@ export default {
           href="#"
           class="text-decoration-none float-end route-button"
           style="padding: 2px"
+          title="Remove"
           @click="removeDay(index)"
         >
           <svg
@@ -390,7 +459,7 @@ export default {
             height="16"
             fill="red"
             class="bi bi-trash"
-            viewBox="0 0 16 16"
+            viewBox="0 0 15 15"
           >
             <path
               d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"
@@ -401,6 +470,29 @@ export default {
             />
           </svg>
         </a>
+
+        <a
+          href="#"
+          class="text-decoration-none float-end route-button"
+          style="padding: 2px"
+          title="Move view"
+          @click="onHighlight(day)"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            fill="currentColor"
+            class="bi bi-compass"
+            viewBox="0 0 16 16"
+          >
+            <path
+              d="M8 16.016a7.5 7.5 0 0 0 1.962-14.74A1 1 0 0 0 9 0H7a1 1 0 0 0-.962 1.276A7.5 7.5 0 0 0 8 16.016zm6.5-7.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0z"
+            />
+            <path d="m6.94 7.44 4.95-2.83-2.83 4.95-4.949 2.83 2.828-4.95z" />
+          </svg>
+        </a>
+
         <div style="margin-left: 0.5em" class="small">
           <svg
             class="metric-icon"
@@ -444,7 +536,7 @@ export default {
                   type="checkbox"
                   v-bind:id="toStr('flexSwitchCheckChecked', day.id)"
                   v-model="day.showOnMap"
-                  @change="onShowOnMap(day)"
+                  @change="onShowRouteOnMap(day)"
                   checked
                 />
                 <label
@@ -505,7 +597,6 @@ export default {
 
               <apexchart
                 v-if="day.hasPoints()"
-                id="elevation-chart"
                 width="100%"
                 height="150px"
                 type="line"
@@ -536,9 +627,17 @@ export default {
 
 .route-button {
   color: black;
-  padding: 0px;
+  padding: 2px 0px 0px 2px;
   margin: auto;
   background-color: transparent !important;
+}
+
+.black {
+  color: black;
+}
+
+.black:hover {
+  color: rgb(126, 126, 126);
 }
 
 .list-unstyled:hover {
@@ -547,5 +646,14 @@ export default {
 
 .list-unstyled {
   background-color: rgb(250, 250, 250);
+}
+
+.day-title {
+  max-width: 408px;
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: text-top
 }
 </style>

@@ -7,6 +7,7 @@ import Vector from "ol/source/Vector";
 import Feature from "ol/Feature";
 import Style from "ol/style/Style";
 import Stroke from "ol/style/Stroke";
+import Fill from "ol/style/Fill";
 
 import * as proj from "ol/proj";
 import * as geom from "ol/geom";
@@ -15,13 +16,12 @@ class RouteMapFeature {
   constructor(id) {
     this.id = id;
     this.geometry = {};
-    this.hasPoints = false;
     this.vectorSource = new Vector({});
 
     this.style = new Style({
       stroke: new Stroke({
-        color: "red",
-        width: 3,
+        color: "rgba(0, 139, 236, 0.8)",
+        width: 4,
       }),
     });
 
@@ -45,7 +45,6 @@ class RouteMapFeature {
     }
 
     this.feature.setGeometry(new geom.MultiLineString([points]));
-    this.hasPoints = points.length > 0;
   }
 
   getVectorLayer() {
@@ -63,6 +62,8 @@ class RouteMapFeature {
 class OLMap {
   constructor(targetId) {
     this.routeList = {};
+    this.pinVisible = false;
+    this.pinCircle = new geom.Circle(proj.fromLonLat([-5.166461, 36.74]), 200);
 
     this.map = new Map({
       target: targetId,
@@ -75,6 +76,26 @@ class OLMap {
         center: proj.transform([-5.166461, 36.74], "EPSG:4326", "EPSG:900913"),
         zoom: 12,
       }),
+    });
+
+    this.movingPin = new VectorLayer({
+      source: new Vector({
+        projection: "EPSG:4326",
+        features: [
+          new Feature(this.pinCircle),
+        ],
+      }),
+      style: [
+        new Style({
+          stroke: new Stroke({
+            color: "white",
+            width: 1,
+          }),
+          fill: new Fill({
+            color: "rgba(231, 109, 35, 1)",
+          }),
+        }),
+      ],
     });
   }
 
@@ -119,6 +140,20 @@ class OLMap {
 
     visibility ? this.getRoute(id).show() : this.getRoute(id).hide();
   }
+
+  setPinVisibility(visibility) {
+    if (this.pinVisible == visibility) return;
+    this.pinVisible = visibility;
+
+    this.pinVisible ? this.map.addLayer(this.movingPin) : this.map.removeLayer(this.movingPin);
+  }
+
+  movePinTo(point) {
+    if (!point) { this.setPinVisibility(false); return; }
+
+    this.pinCircle.setCenter(proj.fromLonLat([point.lng, point.lat]));
+    this.setPinVisibility(true);
+  }
 }
 
 export default {
@@ -132,7 +167,7 @@ export default {
     onUpdateRoutePoints({ id, points }) {
       this.olMap.updateRoutePoints(id, points);
     },
-    onShowOnMap({ id, show }) {
+    onShowRouteOnMap({ id, show }) {
       this.olMap.setRouteVisibility(id, show);
     },
     onDeleteDay({ id }) {
@@ -141,6 +176,9 @@ export default {
     onCenterMap({ point }) {
       this.olMap.centerMap(point);
     },
+    onMovePin({ point }) {
+      this.olMap.movePinTo(point);
+    }
   },
 
   mounted() {
@@ -157,9 +195,10 @@ import Route from "./components/Route.vue";
   <div id="map"></div>
   <Route
     @onUpdateRoutePoints="onUpdateRoutePoints"
-    @onShowOnMap="onShowOnMap"
+    @onShowRouteOnMap="onShowRouteOnMap"
     @onDeleteDay="onDeleteDay"
     @onCenterMap="onCenterMap"
+    @onMovePin="onMovePin"
   />
 </template>
 
