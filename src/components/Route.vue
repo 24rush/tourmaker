@@ -2,6 +2,7 @@
 import GPXProcessor from "../js/gpx.js";
 import VueApexCharts from "vue3-apexcharts";
 import draggable from "vuedraggable";
+import FileSaver from "file-saver";
 
 import { createProjection } from "ol/proj";
 
@@ -34,6 +35,7 @@ class DayRoute {
     this.showOnMap = true;
     this.edit = false;
     this.elevationPoints = [{}];
+    this.loaded = true;
 
     // Private
     this._gpxProcessor = new GPXProcessor();
@@ -219,8 +221,37 @@ export default {
       this.days.splice(index, 1);
       this.$emit("onDeleteDay", { id: id });
     },
+    removeAllDays: function () {
+      for (let index = 0; index < this.days.length; index++) {
+        this.removeDay(index);
+      }
+    },
     editDay: function (day) {
       this.editedDay = day;
+    },
+    saveDay: function () {
+      if (!this.days.length) return;
+
+      let daysToSave = [];
+      for (let i = 0; i < this.days.length; i++) {
+        const day = this.days[i];
+        daysToSave.push({
+          title: day.title,
+          gpx_url: day.gpx_url,
+          gpx_file_name: day.gpx_file_name,
+          showOnMap: day.showOnMap,
+        });
+      }
+
+      var blob = new Blob([JSON.stringify(daysToSave)], {
+        type: "text/plain;charset=utf-8",
+      });
+
+      let timestamp = new Date()
+        .toISOString()
+        .slice(0, 16)
+        .replace(/[:]/g, "-");
+      FileSaver.saveAs(blob, "TourSummary-" + timestamp + ".mkr");
     },
 
     onHighlight: function (day) {
@@ -261,16 +292,82 @@ export default {
       };
       reader.readAsText(file);
     },
-    uploadMultipleGPXs: function (event) {
+
+    getGPXFileHandleByName: function (event, fileName) {
       for (let index = 0; index < event.target.files.length; index++) {
         const file = event.target.files[index];
 
-        this.addDay();
-        let day = this.days[this.days.length - 1];
-        this.updateDayFromGpx(day, file);
+        if (file.name == fileName) {
+          return file;
+        }
+      }
+
+      return undefined;
+    },
+
+    loadMultipleGPXs: function (mkrDesc, event) {
+      if (mkrDesc) {
+        for (let dayIndex = 0; dayIndex < mkrDesc.length; dayIndex++) {
+          const dayDesc = mkrDesc[dayIndex];
+
+          this.addDay();
+          let day = this.days[this.days.length - 1];
+          day.title = dayDesc.title;
+          day.gpx_url = dayDesc.gpx_url;
+          day.gpx_file_name = dayDesc.gpx_file_name;
+          day.showOnMap = dayDesc.showOnMap;
+
+          if (day.gpx_url) {
+            this.updateKommotURL(day);
+          } else if (day.gpx_file_name) {
+            let gpxFileHandle = this.getGPXFileHandleByName(
+              event,
+              day.gpx_file_name
+            );
+
+            day.loaded = gpxFileHandle != undefined;
+            if (gpxFileHandle) {
+              this.updateDayFromGpx(day, gpxFileHandle);
+            }
+          }
+        }
+      } else {
+        for (let index = 0; index < event.target.files.length; index++) {
+          const file = event.target.files[index];
+
+          this.addDay();
+          let day = this.days[this.days.length - 1];
+          this.updateDayFromGpx(day, file);
+        }
       }
     },
-    selectedGPXFile: function (event, day) {      
+
+    uploadMultipleGPXs: function (event) {
+      if (event.target.files.length > 0) this.removeAllDays();
+
+      let mkrFile = undefined;
+      for (let index = 0; index < event.target.files.length; index++) {
+        const file = event.target.files[index];
+        if (file.name.endsWith(".mkr")) {
+          mkrFile = file;
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            this.loadMultipleGPXs(JSON.parse(e.target.result), event);
+          };
+
+          reader.catch = (e) => {};
+          reader.readAsText(file);
+
+          break;
+        }
+      }
+
+      if (!mkrFile) {
+        this.loadMultipleGPXs(undefined, event);
+      }
+    },
+    selectedGPXFile: function (event, day) {
       const file = event.target.files[0];
       this.updateDayFromGpx(day, file);
     },
@@ -289,7 +386,7 @@ export default {
     },
 
     // Events
-    onUpdateGPXURL: function (day) {
+    updateKommotURL: function (day) {
       if (!day.gpx_url) return;
       tryLoadGPX(day.gpx_url)
         .then((items) => {
@@ -383,7 +480,7 @@ export default {
   <div
     id="routeListMain"
     class="flex-shrink-0 p-3 bg-white"
-    style="position: absolute; resize: both; overflow: auto;"
+    style="position: absolute; resize: both; overflow: auto"
   >
     <div
       id="routeListContainer"
@@ -428,19 +525,43 @@ export default {
       </div>
 
       <div style="margin-left: auto; margin-right: 0; padding-top: 0.4em">
-        <div style="display: inline-block">
+        <a
+          href="#"
+          class="text-decoration-none ms-auto black"
+          style="padding-top: 0.4em; padding-left: 0.3em"
+          @click="saveDay"
+          title="Save the tour"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            fill="currentColor"
+            class="bi bi-download"
+            viewBox="0 0 16 15"
+          >
+            <path
+              d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"
+            />
+            <path
+              d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"
+            />
+          </svg>
+        </a>
+
+        <div style="display: inline-block; padding-left: 0.3em">
           <input
             id="multiple_gpx_input"
             style="display: none"
             type="file"
             multiple
-            accept=".gpx"
+            accept=".gpx,.mkr"
             v-on:change="uploadMultipleGPXs($event)"
           />
           <label
             href="#"
             class="text-decoration-none ms-auto black"
-            title="Upload multiple GPXs"
+            title="Upload GPXs or saved tour"
             for="multiple_gpx_input"
           >
             <svg
@@ -498,7 +619,7 @@ export default {
         <li
           class="list-group-item list-unstyled mb-1"
           style="padding: 0px"
-          :class="{ 'not-draggable': !days.length }"
+          v-bind:class="{ 'not-draggable': !days.length, 'list-unstyled-error' : !element.loaded }"
         >
           <button
             class="btn btn-toggle align-items-center rounded"
@@ -634,7 +755,7 @@ export default {
                     type="text"
                     class="form-control"
                     v-model="element.gpx_url"
-                    v-on:input="onUpdateGPXURL(element)"
+                    v-on:input="updateKommotURL(element)"
                     aria-label="url input"
                     aria-describedby="inputGroup-sizing-sm"
                   />
@@ -645,7 +766,7 @@ export default {
                       route-button
                       metric-icon
                     "
-                    v-on:click="onUpdateGPXURL(element)"
+                    v-on:click="updateKommotURL(element)"
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -786,12 +907,20 @@ export default {
   color: rgb(126, 126, 126);
 }
 
+.list-unstyled {
+  background-color: rgb(250, 250, 250);
+}
+
+.list-unstyled-error {
+  background-color: rgb(247, 133, 133);
+}
+
 .list-unstyled:hover {
   background-color: rgb(248, 248, 248);
 }
 
-.list-unstyled {
-  background-color: rgb(250, 250, 250);
+.list-unstyled-error:hover {
+  background-color: rgb(247, 110, 110);
 }
 
 .day-title {
