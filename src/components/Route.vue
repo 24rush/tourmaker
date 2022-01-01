@@ -8,11 +8,6 @@ fetch("src/assets/gpx.json")
   .then((response) => response.json())
   .then((items) => {
     gpx.setPoints(items.items);
-
-    console.log(gpx.getDistanceInGradientRange(0, 3));
-    console.log(gpx.getDistanceInGradientRange(4, 7));
-    console.log(gpx.getDistanceInGradientRange(8, 40));
-    console.log(gpx.getDistanceInGradientRange(-40, -1));
   });
 
 async function tryLoadGPX(url) {
@@ -31,6 +26,7 @@ class DayRoute {
     this.title = "Day " + this.index;
     this.context = context;
     this.gpx_url = "";
+    this.gpx_file_name = "";
     this.elevation = 0.0;
     this.distance = 0.0;
     this.showOnMap = true;
@@ -160,6 +156,24 @@ class DayRoute {
   getGradientAtIndexPosition(index) {
     return this._gpxProcessor.getGradientAtIndexPosition(index);
   }
+
+  getDistanceOnFlat() {
+    return (
+      this.distance -
+      (this.getDistanceOnMedHills() +
+        this.getDistanceOnHighHills() +
+        this.getDistanceOnDescent())
+    );
+  }
+  getDistanceOnMedHills() {
+    return this._gpxProcessor.getDistanceInGradientRange(2, 6);
+  }
+  getDistanceOnHighHills() {
+    return this._gpxProcessor.getDistanceInGradientRange(7, 400);
+  }
+  getDistanceOnDescent() {
+    return this._gpxProcessor.getDistanceInGradientRange(-40, -2);
+  }
 }
 
 export default {
@@ -209,8 +223,7 @@ export default {
       if (!day.showOnMap || !day.hasPoints()) return;
       this.$emit("onCenterMap", { point: day.getCenterPoint() });
     },
-    selectedGPXFile: function (event, day) {
-      const file = event.target.files[0];
+    updateDayFromGpx: function (day, file) {
       if (!file) {
         this.updateDayRoute(day, []);
         return;
@@ -234,14 +247,29 @@ export default {
           });
         }
 
+        day.gpx_file_name = file.name;
+        day.updateTitle(day.gpx_file_name.replace(/\.[^/.]+$/, ""));
         this.updateDayRoute(day, points);
-        day.updateTitle(file.name.replace(/\.[^/.]+$/, ""));
       };
 
       reader.catch = (e) => {
         this.updateDayRoute(day, []);
       };
       reader.readAsText(file);
+    },
+    uploadMultipleGPXs: function (event) {
+      for (let index = 0; index < event.target.files.length; index++) {
+        const file = event.target.files[index];
+
+        this.addDay();
+        let day = this.days[this.days.length - 1];
+        this.updateDayFromGpx(day, file);
+      }
+    },
+    selectedGPXFile: function (event, day) {
+      console.log(event);
+      const file = event.target.files[0];
+      this.updateDayFromGpx(day, file);
     },
 
     updateDayRoute: function (day, points) {
@@ -397,28 +425,63 @@ export default {
         <span class="metric"> {{ this.totalDistance() }} km</span>
       </div>
 
-      <a
-        href="#"
-        class="text-decoration-none ms-auto black"
-        style="padding-top: 0.4em"
-        @click="addDay"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          fill="currentColor"
-          class="bi bi-plus-square"
-          viewBox="0 0 16 16"
+      <div style="margin-left: auto; margin-right: 0; padding-top: 0.4em">
+        <div style="display: inline-block">
+          <input
+            id="multiple_gpx_input"
+            style="display: none"
+            type="file"
+            multiple
+            accept=".gpx"
+            v-on:change="uploadMultipleGPXs($event)"
+          />
+          <label
+            href="#"
+            class="text-decoration-none ms-auto black"
+            title="Upload multiple GPXs"
+            for="multiple_gpx_input"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              fill="currentColor"
+              class="bi bi-upload"
+              viewBox="0 0 16 15"
+            >
+              <path
+                d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"
+              />
+              <path
+                d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"
+              />
+            </svg>
+          </label>
+        </div>
+        <a
+          href="#"
+          class="text-decoration-none ms-auto black"
+          style="padding-top: 0.4em; padding-left: 0.3em"
+          @click="addDay"
+          title="Add a day to the tour"
         >
-          <path
-            d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h12zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z"
-          />
-          <path
-            d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"
-          />
-        </svg>
-      </a>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            fill="currentColor"
+            class="bi bi-plus-square"
+            viewBox="0 0 16 16"
+          >
+            <path
+              d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h12zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z"
+            />
+            <path
+              d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"
+            />
+          </svg>
+        </a>
+      </div>
     </div>
     <ul class="list-unstyled ps-0" :key="day.id" v-for="(day, index) in days">
       <li class="mb-1">
@@ -585,15 +648,67 @@ export default {
                   </svg>
                 </a>
               </div>
-              <div class="small" style="margin-top: -1em">or</div>
-              <div class="input-group input-group-sm mb-3">
+              <div class="small" style="margin: -1em 0em 0.3em 0.1em">or</div>
+
+              <div class="input-group input-group-sm mb-3 custom-file-button">
+                <label
+                  class="input-group-text"
+                  v-bind:for="toStr('inputGroupFile', day.id)"
+                  >Upload GPX</label
+                >
                 <input
-                  aria-label="as"
                   type="file"
                   class="form-control"
+                  style="display: none"
+                  v-bind:id="toStr('inputGroupFile', day.id)"
+                  accept=".gpx"
                   v-on:change="selectedGPXFile($event, day)"
                 />
+                <span
+                  class="day-title"
+                  style="display: inline-block; margin: auto auto auto 3px"
+                  v-bind:title="day.gpx_file_name"
+                >
+                  {{ day.gpx_file_name }}
+                </span>
               </div>
+
+              <table
+                class="table table-sm table-borderless"
+                v-if="day.hasPoints()"
+                style="width: 65%; margin-bottom: 0"
+              >
+                <tbody>
+                  <tr>
+                    <td class="text-end"><span class="small">flat</span></td>
+                    <td>
+                      <span class="metric-sec"
+                        >{{ day.getDistanceOnFlat() }} km</span
+                      >
+                    </td>
+                    <td class="text-end"><span class="small">descent</span></td>
+                    <td>
+                      <span class="metric-sec"
+                        >{{ day.getDistanceOnDescent() }} km</span
+                      >
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="text-end"><span class="small">medium</span></td>
+                    <td>
+                      <span class="metric-sec"
+                        >{{ day.getDistanceOnMedHills() }} km</span
+                      >
+                    </td>
+                    <td class="text-end"><span class="small">hard</span></td>
+                    <td>
+                      <span class="metric-sec"
+                        >{{ day.getDistanceOnHighHills() }} km</span
+                      >
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
 
               <apexchart
                 v-if="day.hasPoints()"
@@ -615,6 +730,11 @@ export default {
 .metric {
   vertical-align: sub;
   font-weight: 500;
+}
+
+.metric-sec {
+  font-weight: 500;
+  margin-left: 0.3em;
 }
 
 .metric-icon {
@@ -654,6 +774,26 @@ export default {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  vertical-align: text-top
+  vertical-align: text-top;
+}
+.custom-file-button input[type="file"] {
+  margin-left: -2px !important;
+}
+
+.custom-file-button input[type="file"]::-webkit-file-upload-button {
+  display: none;
+}
+
+.custom-file-button input[type="file"]::file-selector-button {
+  display: none;
+}
+
+.custom-file-button:hover label {
+  background-color: #dde0e3;
+  cursor: pointer;
+}
+
+.table-sm > :not(caption) > * > * {
+  padding: 0rem;
 }
 </style>

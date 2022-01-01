@@ -34,11 +34,11 @@ export default class GPXProcessor {
     }
 
     setPoints(points) {
-        this.points = points;
-        if (points.length == 0) {
-            this.reset();
+        this.reset();        
+        if (points.length == 0) {            
             return;
         }
+        this.points = points;
 
         let prevPoint = points[0];
         this._bbLeftBottom = { 'lat': prevPoint.lat, 'lng': prevPoint.lng };
@@ -54,9 +54,10 @@ export default class GPXProcessor {
         this.maxElevation = points[0].alt;
 
         points[0].gradient = 0.0;
+        points[points.length-1].gradient = 0.0;
         points[0].distanceFromStart = 0.0;
 
-        for (var i = 1; i < points.length - 1; i++) {
+        for (var i = 1; i < points.length; i++) {
             let point = points[i];
 
             if (point.alt > prevPoint.alt) {
@@ -115,6 +116,7 @@ export default class GPXProcessor {
     getPointAtDistanceFromStart(distance) {
         for (var i = 1; i < this.points.length; i++) {
             let point = this.points[i];
+
             if (point.distanceFromStart >= distance) {
                 return this.points[i - 1];
             }
@@ -147,7 +149,7 @@ export default class GPXProcessor {
     }
 
     addGradientToMap(gradient, distance) {
-        gradient = Math.floor(gradient);
+        gradient = gradient > 0 ? Math.floor(gradient) : Math.ceil(gradient);
         if (gradient in this.gradientMaps)
             this.gradientMaps[gradient] += distance;
         else
